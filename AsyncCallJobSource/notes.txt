@@ -1,0 +1,20 @@
+﻿PowerShell specific
+http://rkeithhill.wordpress.com/2013/09/30/calling-winrt-async-methods-from-windows-powershell/
+
+General stuff
+http://blogs.msdn.com/b/eternalcoding/archive/2013/10/29/how-to-use-specific-winrt-api-from-desktop-apps-capturing-a-photo-using-your-webcam-into-a-wpf-app.aspx
+
+Get a list of all WinRT APIs callable from the desktop
+http://iinspectable.wordpress.com/2013/08/18/dualapi-finder-or-listing-winrt-types-usable-by-desktop-apps/
+
+
+=================
+
+[Windows.Storage.StorageFile,Windows.Storage,ContentType=WindowsRuntime] > $null
+$path = "$home\Pictures\foo.png"
+$asyncOp = [Windows.Storage.StorageFile]::GetFileFromPathAsync($path)
+Add-Type -Path ~\PoshWinRT.dll
+$typeName = 'PoshWinRT.AsyncOperationWrapper[Windows.Storage.StorageFile]'
+$wrapper = new-object $typeName -Arg $asyncOp
+$file = $wrapper.AwaitResult()
+$file
