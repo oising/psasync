@@ -5,8 +5,6 @@ using System.Management.Automation;
 using System.Text;
 using System.Threading.Tasks;
 
-using Windows.Foundation;
-
 namespace Nivot.PowerShell.Async
 {
     public class AsyncCallJobSourceAdapter : JobSourceAdapter
@@ -15,7 +13,7 @@ namespace Nivot.PowerShell.Async
 
         public AsyncCallJobSourceAdapter()
         {
-            this.Name = "AsyncCall";
+            this.Name = "AsyncCallAdapter";
             this._calls = new AsyncCallRepository("Async Calls");
             this._calls.Add(new AsyncCallInfo(Guid.NewGuid(), null));
             this._calls.Add(new AsyncCallInfo(Guid.NewGuid(), null));
@@ -24,11 +22,20 @@ namespace Nivot.PowerShell.Async
 
         public override Job2 NewJob(JobInvocationInfo specification)
         {
+            Tracer.LogVerbose("NewJob");
+            throw new NotImplementedException();
+        }
+
+        public override Job2 NewJob(string definitionName, string definitionPath)
+        {
+            Tracer.LogVerbose("NewJob name: {0}; path: {1}", definitionName, definitionPath);
             throw new NotImplementedException();
         }
 
         public override IList<Job2> GetJobs()
         {
+            Tracer.LogVerbose("GetJobs()");
+
             return (
                 from call in this._calls.GetItems()
                 select new AsyncCallJob(null, "foo", "bar", Guid.NewGuid()))
@@ -38,39 +45,54 @@ namespace Nivot.PowerShell.Async
 
         public override IList<Job2> GetJobsByName(string name, bool recurse)
         {
+            Tracer.LogVerbose("GetJobsByName");
+
             throw new NotImplementedException();
         }
 
         public override IList<Job2> GetJobsByCommand(string command, bool recurse)
         {
+            Tracer.LogVerbose("GetJobsByCommand");
+
             throw new NotImplementedException();
         }
 
         public override Job2 GetJobByInstanceId(Guid instanceId, bool recurse)
         {
+            Tracer.LogVerbose("GetJobByInstanceId");
+
             throw new NotImplementedException();
         }
 
         public override Job2 GetJobBySessionId(int id, bool recurse)
         {
+            Tracer.LogVerbose("getJobBySessionId");
+
             throw new NotImplementedException();
         }
 
         public override IList<Job2> GetJobsByState(JobState state, bool recurse)
         {
+            Tracer.LogVerbose("GetJobsByState");
+
             throw new NotImplementedException();
         }
 
         public override IList<Job2> GetJobsByFilter(Dictionary<string, object> filter, bool recurse)
         {
+            Tracer.LogVerbose("GetJobsByFilter");
+
             throw new NotImplementedException();
         }
 
         public override void RemoveJob(Job2 job)
         {
+            Tracer.LogVerbose("RemoveJob");
+
             throw new NotImplementedException();
         }
 
+        // TODO: this should be a job repo, not a callinfo repo
         private class AsyncCallRepository : Repository<AsyncCallInfo>
         {
             public AsyncCallRepository(string identifier)
@@ -80,6 +102,7 @@ namespace Nivot.PowerShell.Async
 
             protected override Guid GetKey(AsyncCallInfo item)
             {
+                Tracer.LogVerbose("AsyncCallRepo GetKey {0}", item.Id);
                 return item.Id;
             }
         }
@@ -89,20 +112,4 @@ namespace Nivot.PowerShell.Async
     // .NET async awaitable
     // WinRT async awaitable
     // .NET begin/end async call
-
-    internal class AsyncCallInfo
-    {
-
-        public AsyncCallInfo(Guid id, dynamic callSite)
-        {
-            this.Id = id;
-            this.CallSite = callSite;
-        }
-
-        public Guid Id;
-
-        public dynamic CallSite;
-
-        public AsyncStatus Status;
-    }
 }

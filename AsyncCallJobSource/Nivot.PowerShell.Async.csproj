@@ -51,18 +51,18 @@
     <Reference Include="Windows" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="AsyncCallInfo.cs" />
     <Compile Include="AsyncCallJob.cs" />
     <Compile Include="ASyncCallJobInvocationInfo.cs" />
     <Compile Include="AsyncCallJobSourceAdapter.cs" />
     <Compile Include="AsyncOperationWrapper.cs" />
+    <Compile Include="Commands\RegisterAsyncCallEventCommand.cs" />
     <Compile Include="JetBrains.Annotations.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="Tracer.cs" />
     <Compile Include="TracerImpl.cs" />
   </ItemGroup>
-  <ItemGroup>
-    <Folder Include="Commands\" />
-  </ItemGroup>
+  <ItemGroup />
   <ItemGroup>
     <Content Include="notes.txt" />
   </ItemGroup>
