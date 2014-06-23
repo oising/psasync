@@ -82,14 +82,16 @@ namespace Nivot.PowerShell.Async.Commands
 
             bool isStatic = false;
             Type targetType;
-            if (InputObject.BaseObject is Type)
+            if ((InputObject.BaseObject as Type) != null)
             {
                 targetType = (Type)InputObject.BaseObject;
                 isStatic = true;
+                this.WriteVerbose("InputObject is a Type: " + targetType.Name);
             }
             else
             {
                 targetType = InputObject.BaseObject.GetType();
+                this.WriteVerbose("InputObject is an instance of " + targetType.Name);
             }
 
             // Func<T1, Tn..., AsyncCallback, object, IAsyncResult> begin,
@@ -97,6 +99,8 @@ namespace Nivot.PowerShell.Async.Commands
             // begin/end?
             if (MethodName.StartsWith("Begin"))
             {
+                WriteVerbose("Method is AsyncCallback Begin/End pairing style.");
+
                 var args = ArgumentList ?? new Type[0];
                 var signature = new Type[args.Length + 2];
                 Type.GetTypeArray(args).CopyTo(signature, index: 0);
@@ -127,6 +131,14 @@ namespace Nivot.PowerShell.Async.Commands
                 
                 // Begin method has a variable parameter count of between 0 and 4 extra (on top of asyncallback and state.)
                 MethodInfo begin = targetType.GetMethod(MethodName, signature);
+                if (begin == null)
+                {
+                    throw new ArgumentOutOfRangeException("ArgumentList",
+                        "Could not find a matching method for the argument list provided.");
+                }
+
+                this.WriteVerbose("Overload is: " + begin.ToString());
+
                 var beginFuncSignature = new Type[signature.Length + 1];
                 signature.CopyTo(beginFuncSignature, 0);
                 beginFuncSignature[signature.Length] = typeof(IAsyncResult); // return
@@ -145,7 +157,7 @@ namespace Nivot.PowerShell.Async.Commands
                 Type[] endFuncSignature;
                 Type closeFunc; // (IAsyncResult) => dynamic (end.ReturnType) || void
 
-                if (end.ReturnType != typeof(Void))
+                if (end.ReturnType != typeof(void))
                 {
                     this.WriteVerbose("End is non-void, building Func<,>");
                     closeFunc = typeof(Func<,>);
@@ -153,8 +165,8 @@ namespace Nivot.PowerShell.Async.Commands
                 }
                 else
                 {
-                    this.WriteVerbose("End is void, building Func<>");
-                    closeFunc = typeof(Func<>); // void return
+                    this.WriteVerbose("End is void, building Action<>");
+                    closeFunc = typeof(Action<>); // void return
                     endFuncSignature = new Type[1] { typeof(IAsyncResult) };
                 }
                 var endHandler = end.CreateDelegate(closeFunc.MakeGenericType(endFuncSignature),
@@ -168,7 +180,7 @@ namespace Nivot.PowerShell.Async.Commands
                         // raise event on BindingInfo
 
                         dynamic retVal = endHandler.DynamicInvoke(result);
-                        binding.OnCompleted(new AsyncCompletedEventArgs(null, false, retVal));
+                        binding.OnCompleted(new AsyncCompletedEventArgs(null, false, retVal)); // TODO: construct a custom EA
                     };
                 
                 var parameters = new object[args.Length + 2];
@@ -177,6 +189,8 @@ namespace Nivot.PowerShell.Async.Commands
                 parameters[args.Length + 1] = null; // object state
 
                 var result2 = (IAsyncResult)beginHandler.DynamicInvoke(parameters);
+
+                // TODO: construct Task<> from begin/end pairing to abstract async method patterns
                 //var factory = Task<dynamic>.Factory.FromAsync()
                 //factory
                 WriteObject(result2);
@@ -192,9 +206,10 @@ namespace Nivot.PowerShell.Async.Commands
 
         protected override void EndProcessing()
         {
-            //this.SourceIdentifier = this.GetBindingInfo(InputObject).ID.ToString();
-
+            // hook up everything first
             base.EndProcessing();
+
+            this.EnsureAsynchronousMethodProvided();
         }
 
         protected override object GetSourceObject()
@@ -213,20 +228,23 @@ namespace Nivot.PowerShell.Async.Commands
 
         protected override string GetSourceObjectEventName()
         {
-            this.WriteVerbose("GetSourceObjectEventName()");
-            string eventName = String.Format("{0}Completed", MethodName.Substring(5)); // trim "Begin" 
+            string eventName = String.Format("{0}Completed", MethodName.Substring(5)); // trim "Begin"
             
+            // subscription is unique per instance/event combo (this might be too restrictive?)
             this.SourceIdentifier += ("_" + eventName);
             
-            return eventName;
+            this.WriteVerbose("GetSourceObjectEventName(): " + this.SourceIdentifier);
+            
+            return "Completed"; // fixed-name event for BindingInfo
         }
 
-        [Parameter(Mandatory = true, Position = 0)]
+        [Parameter(Mandatory = true, Position = 0, ValueFromPipeline = true)]
         public PSObject InputObject { get; set; }
 
         //Func<T1, AsyncCallback, object, IAsyncResult> begin,
-        [Parameter(Mandatory = true)]
+        [Parameter(Mandatory = true, ValueFromPipelineByPropertyName = true)]
         [ValidateNotNullOrEmpty]
+        [Alias("Name")]
         public string MethodName { get; set; }
 
         //Func<IAsyncResult, dynamic> end)
