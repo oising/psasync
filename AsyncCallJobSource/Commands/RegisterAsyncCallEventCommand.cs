@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Linq;
 using System.Management.Automation;
 using System.Reflection;
@@ -24,9 +25,20 @@ namespace Nivot.PowerShell.Async.Commands
                 ID = Guid.NewGuid();
             }
 
+            internal void OnCompleted(AsyncCompletedEventArgs args)
+            {
+                var temp = Completed;
+                if (temp != null)
+                {
+                    temp(this, args);
+                }
+            }
+
             public Guid ID { get; private set; }
 
             public string MethodName { get; set; }
+
+            public event EventHandler<AsyncCompletedEventArgs> Completed;
         }
 
         private static readonly object _sync = new object();
@@ -60,6 +72,9 @@ namespace Nivot.PowerShell.Async.Commands
 
         private void EnsureAsynchronousMethodProvided()
         {
+            // Trying to roughly follow http://msdn.microsoft.com/en-us/library/ms228974(v=vs.110).aspx
+            // "Event-based async pattern"
+
             if (InputObject == null)
             {
                 throw new PSArgumentNullException("InputObject", "InputObject may not be null.");
@@ -86,30 +101,89 @@ namespace Nivot.PowerShell.Async.Commands
                 var signature = new Type[args.Length + 2];
                 Type.GetTypeArray(args).CopyTo(signature, index: 0);
                 (new[] { typeof(AsyncCallback), typeof(object)}).CopyTo(signature, args.Length);
+
+                // This is fugly, but the alterative is to use expression trees which are painful [for me] to write.
+                Type openFunc;
+                switch (args.Length)
+                {
+                    case 0:
+                        openFunc = typeof(Func<,,>); // (AsyncCallback, object) => IAsyncResult
+                        break;
+                    case 1:
+                        openFunc = typeof(Func<,,,>); // (T1, AsyncCallback, object) => IAsyncResult
+                        break;
+                    case 2:
+                        openFunc = typeof(Func<,,,,>); // (T1, T2, AsyncCallback, object) => IAsyncResult
+                        break;
+                    case 3:
+                        openFunc = typeof(Func<,,,,,>); // (T1, T2, T3, AsyncCallback, object) => IAsyncResult
+                        break;
+                    case 4:
+                        openFunc = typeof(Func<,,,,,,>); // (T1, T2, T3, T4, AsyncCallback, object) => IAsyncResult
+                        break;
+                    default:
+                        throw new ArgumentException("Signature has too many parameters. The maximum supported is 4 custom plus AsyncCallback/object for a total of 6.");
+                }
                 
-                var openFunc = typeof(Func<>);
-                
+                // Begin method has a variable parameter count of between 0 and 4 extra (on top of asyncallback and state.)
                 MethodInfo begin = targetType.GetMethod(MethodName, signature);
                 var beginFuncSignature = new Type[signature.Length + 1];
                 signature.CopyTo(beginFuncSignature, 0);
                 beginFuncSignature[signature.Length] = typeof(IAsyncResult); // return
-                var beginHandler = begin.CreateDelegate(openFunc.MakeGenericType(beginFuncSignature), targetType);
+                var beginHandler = begin.CreateDelegate(openFunc.MakeGenericType(beginFuncSignature),
+                    isStatic ? targetType : InputObject.BaseObject);
 
+                // End method has a fixed parameter count of 1.
                 MethodInfo end = targetType.GetMethod(
                     MethodName.Replace("Begin", "End"),
                     new[] { typeof(IAsyncResult) });
-                var endFuncSignature = new Type[2] { typeof(IAsyncResult), end.ReturnType };
-                var endHandler = end.CreateDelegate(openFunc.MakeGenericType(endFuncSignature), targetType);
+                if (end == null)
+                {
+                    throw new ArgumentException("Could not find matching end method.");
+                }
 
+                Type[] endFuncSignature;
+                Type closeFunc; // (IAsyncResult) => dynamic (end.ReturnType) || void
+
+                if (end.ReturnType != typeof(Void))
+                {
+                    this.WriteVerbose("End is non-void, building Func<,>");
+                    closeFunc = typeof(Func<,>);
+                    endFuncSignature = new Type[2] { typeof(IAsyncResult), end.ReturnType };
+                }
+                else
+                {
+                    this.WriteVerbose("End is void, building Func<>");
+                    closeFunc = typeof(Func<>); // void return
+                    endFuncSignature = new Type[1] { typeof(IAsyncResult) };
+                }
+                var endHandler = end.CreateDelegate(closeFunc.MakeGenericType(endFuncSignature),
+                    isStatic ? targetType : InputObject.BaseObject);
+
+                var binding = this.GetBindingInfo(InputObject.BaseObject);
 
                 // BeginFoo(arg1, arg2, argN, AsyncCallback, object) : IAsyncResult // ..., callback, state
-                //var result = (IAsyncResult)beginHandler.DynamicInvoke( /*...*/, , null);
+                Action<IAsyncResult> callback = result =>
+                    {
+                        // raise event on BindingInfo
+
+                        dynamic retVal = endHandler.DynamicInvoke(result);
+                        binding.OnCompleted(new AsyncCompletedEventArgs(null, false, retVal));
+                    };
+                
+                var parameters = new object[args.Length + 2];
+                args.CopyTo(parameters, 0);
+                parameters[args.Length] = new AsyncCallback(callback);
+                parameters[args.Length + 1] = null; // object state
+
+                var result2 = (IAsyncResult)beginHandler.DynamicInvoke(parameters);
                 //var factory = Task<dynamic>.Factory.FromAsync()
-                //factory.
+                //factory
+                WriteObject(result2);
             }
             else if (MethodName.EndsWith("Async"))
             {
-                this.WriteWarning("*Async method handling not implemented.");
+                this.WriteWarning("*Async method handling not implemented, yet.");
             }
             // winrt / task?
 
@@ -125,18 +199,26 @@ namespace Nivot.PowerShell.Async.Commands
 
         protected override object GetSourceObject()
         {
+            // after the callback completes, we want it to auto-unregister
             this.MaxTriggerCount = 1;
-            this.WriteVerbose(String.Format("GetSourceObject(); ID is {0}",
-                this.GetBindingInfo(InputObject).ID));
+
+            BindingInfo binding = this.GetBindingInfo(InputObject);
             
-            return this.InputObject;
+            this.WriteVerbose(String.Format("GetSourceObject(); ID is {0}", binding.ID));
+
+            // the PSEventJob will monitor for the Completed
+            // event on this instance.
+            return binding; 
         }
 
         protected override string GetSourceObjectEventName()
         {
             this.WriteVerbose("GetSourceObjectEventName()");
-            return this.MethodName;
-            //throw new NotImplementedException();
+            string eventName = String.Format("{0}Completed", MethodName.Substring(5)); // trim "Begin" 
+            
+            this.SourceIdentifier += ("_" + eventName);
+            
+            return eventName;
         }
 
         [Parameter(Mandatory = true, Position = 0)]
