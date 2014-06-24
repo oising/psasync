@@ -65,8 +65,6 @@ namespace Nivot.PowerShell.Async.Commands
                     MaxTriggerCount, "The maximum trigger count for a callback event is fixed at 1.");
             }
 
-            EnsureAsynchronousMethodProvided();
-
             base.BeginProcessing();
         }
 
