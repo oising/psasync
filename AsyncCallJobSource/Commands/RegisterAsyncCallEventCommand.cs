@@ -135,76 +135,16 @@ namespace Nivot.PowerShell.Async.Commands
                 WriteVerbose("Method is AsyncCallback Begin/End pairing style.");
 
                 var args = ArgumentList ?? new Type[0];
-                var signature = new Type[args.Length + 2];
-                Type.GetTypeArray(args).CopyTo(signature, index: 0);
-                (new[] { typeof(AsyncCallback), typeof(object)}).CopyTo(signature, args.Length);
+                var beginSignature = new Type[args.Length + 2];
+                Type.GetTypeArray(args).CopyTo(beginSignature, index: 0);
+                (new[] { typeof(AsyncCallback), typeof(object)}).CopyTo(beginSignature, args.Length);
 
-                // This is fugly, but the alterative is to use expression trees which are painful [for me] to write.
-                Type openFunc;
-                switch (args.Length)
-                {
-                    case 0:
-                        openFunc = typeof(Func<,,>); // (AsyncCallback, object) => IAsyncResult
-                        break;
-                    case 1:
-                        openFunc = typeof(Func<,,,>); // (T1, AsyncCallback, object) => IAsyncResult
-                        break;
-                    case 2:
-                        openFunc = typeof(Func<,,,,>); // (T1, T2, AsyncCallback, object) => IAsyncResult
-                        break;
-                    case 3:
-                        openFunc = typeof(Func<,,,,,>); // (T1, T2, T3, AsyncCallback, object) => IAsyncResult
-                        break;
-                    case 4:
-                        openFunc = typeof(Func<,,,,,,>); // (T1, T2, T3, T4, AsyncCallback, object) => IAsyncResult
-                        break;
-                    default:
-                        throw new ArgumentException("Signature has too many parameters. The maximum supported is 4 custom plus AsyncCallback/object for a total of 6.");
-                }
-                
                 // Begin method has a variable parameter count of between 0 and 4 extra (on top of asyncallback and state.)
-                MethodInfo begin = targetType.GetMethod(MethodName, signature);
-                if (begin == null)
-                {
-                    throw new ArgumentOutOfRangeException("ArgumentList",
-                        "Could not find a matching method for the argument list provided.");
-                }
-
-                this.WriteVerbose("Overload is: " + begin.ToString());
-
-                var beginFuncSignature = new Type[signature.Length + 1];
-                signature.CopyTo(beginFuncSignature, 0);
-                beginFuncSignature[signature.Length] = typeof(IAsyncResult); // return
-                var beginHandler = begin.CreateDelegate(openFunc.MakeGenericType(beginFuncSignature),
-                    isStatic ? targetType : _baseObject);
+                var beginHandler = this.BuildBeginHandler(targetType, beginSignature, isStatic);
 
                 // End method has a fixed parameter count of 1.
-                MethodInfo end = targetType.GetMethod(
-                    MethodName.Replace("Begin", "End"),
-                    new[] { typeof(IAsyncResult) });
-                if (end == null)
-                {
-                    throw new ArgumentException("Could not find matching end method.");
-                }
-
-                Type[] endFuncSignature;
-                Type closeFunc; // (IAsyncResult) => dynamic (end.ReturnType) || void
-                bool isVoid = false;
-                if (end.ReturnType == typeof(void))
-                {
-                    this.WriteVerbose("End is void, building Action<>");
-                    closeFunc = typeof(Action<>); // void return
-                    endFuncSignature = new Type[1] { typeof(IAsyncResult) };
-                    isVoid = true;
-                }
-                else
-                {
-                    this.WriteVerbose("End is non-void, building Func<,>");
-                    closeFunc = typeof(Func<,>);
-                    endFuncSignature = new Type[2] { typeof(IAsyncResult), end.ReturnType };
-                }
-                var endHandler = end.CreateDelegate(closeFunc.MakeGenericType(endFuncSignature),
-                    isStatic ? targetType : _baseObject);
+                bool isVoid;
+                var endHandler = this.BuildEndHandler(targetType, isStatic, out isVoid);
 
                 var binding = this.GetBindingInfo(_baseObject);
 
@@ -236,7 +176,15 @@ namespace Nivot.PowerShell.Async.Commands
                 var result2 = (IAsyncResult)beginHandler.DynamicInvoke(parameters);
 
                 // TODO: construct Task<> from begin/end pairing to abstract async method patterns
-                //var factory = Task<dynamic>.Factory.FromAsync()
+                if (isVoid)
+                {
+                    var factory = Task.Factory; //.FromAsync()
+                }
+                else
+                {
+                    var factory = Task<dynamic>.Factory; //.FromAsync()
+                }
+
                 //factory
                 WriteObject(result2);
             }
@@ -247,6 +195,82 @@ namespace Nivot.PowerShell.Async.Commands
             // winrt / task?
 
             // 
+        }
+
+        private Delegate BuildEndHandler(Type targetType, bool isStatic, out bool isVoid)
+        {
+            MethodInfo end = targetType.GetMethod(this.MethodName.Replace("Begin", "End"), new[] { typeof(IAsyncResult) });
+            if (end == null)
+            {
+                throw new PSArgumentException("Could not find matching end method.");
+            }
+
+            Type[] endFuncSignature;
+            Type closeFunc; // (IAsyncResult) => dynamic (end.ReturnType) || void
+            isVoid = false;
+            if (end.ReturnType == typeof(void))
+            {
+                this.WriteVerbose("End is void, building Action<>");
+                closeFunc = typeof(Action<>); // void return
+                endFuncSignature = new Type[1] { typeof(IAsyncResult) };
+                isVoid = true;
+            }
+            else
+            {
+                this.WriteVerbose("End is non-void, building Func<,>");
+                closeFunc = typeof(Func<,>);
+                endFuncSignature = new Type[2] { typeof(IAsyncResult), end.ReturnType };
+            }
+            var endHandler = end.CreateDelegate(
+                closeFunc.MakeGenericType(endFuncSignature),
+                isStatic ? targetType : this._baseObject);
+
+            return endHandler;
+        }
+
+        private Delegate BuildBeginHandler(Type targetType, Type[] signature, bool isStatic)
+        {
+            Type openFunc;
+            switch (signature.Length - 2) // substract asynccallback/state params
+            {
+                case 0:
+                    openFunc = typeof(Func<,,>); // (AsyncCallback, object) => IAsyncResult
+                    break;
+                case 1:
+                    openFunc = typeof(Func<,,,>); // (T1, AsyncCallback, object) => IAsyncResult
+                    break;
+                case 2:
+                    openFunc = typeof(Func<,,,,>); // (T1, T2, AsyncCallback, object) => IAsyncResult
+                    break;
+                case 3:
+                    openFunc = typeof(Func<,,,,,>); // (T1, T2, T3, AsyncCallback, object) => IAsyncResult
+                    break;
+                case 4:
+                    openFunc = typeof(Func<,,,,,,>); // (T1, T2, T3, T4, AsyncCallback, object) => IAsyncResult
+                    break;
+                default:
+                    throw new PSArgumentException("Signature has too many parameters. " +
+                        " The maximum supported is 4 custom plus AsyncCallback/object for a total of 6.",
+                        "ArgumentList");
+            }
+
+            MethodInfo begin = targetType.GetMethod(this.MethodName, signature);
+            if (begin == null)
+            {
+                throw new PSArgumentException(
+                    "Could not find a matching method for the argument list provided.",
+                    "ArgumentList");
+            }
+
+            this.WriteVerbose("Overload is: " + begin.ToString());
+
+            var beginFuncSignature = new Type[signature.Length + 1];
+            signature.CopyTo(beginFuncSignature, 0);
+            beginFuncSignature[signature.Length] = typeof(IAsyncResult); // return
+            var beginHandler = begin.CreateDelegate(
+                openFunc.MakeGenericType(beginFuncSignature),
+                isStatic ? targetType : this._baseObject);
+            return beginHandler;
         }
 
         protected override void EndProcessing()
