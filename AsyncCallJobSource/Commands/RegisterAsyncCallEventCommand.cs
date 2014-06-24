@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Linq;
 using System.Management.Automation;
 using System.Reflection;
@@ -14,35 +15,67 @@ using Microsoft.PowerShell.Commands;
 
 namespace Nivot.PowerShell.Async.Commands
 {
+    [UsedImplicitly]
+    public class BindingInfo
+    {
+        private readonly object _sync = new Object();
+
+        private event EventHandler<AsyncCompletedEventArgs> CompletedInternal;
+
+        public BindingInfo()
+        {
+            ID = Guid.NewGuid();
+            Tracer.LogVerbose("New BindingInfo() {0}", ID);
+
+            CompletedInternal = delegate
+            {
+                Tracer.LogInfo("Raising Completed for {0}; subscribers: {1}",
+                    this.ID, CompletedInternal.GetInvocationList().Length);
+                
+            }; // empty
+        }
+
+        internal void OnCompleted(AsyncCompletedEventArgs args)
+        {
+            var temp = CompletedInternal;
+            if (temp != null)
+            {
+                temp(this, args);
+            }
+        }
+
+        public Guid ID { get; private set; }
+
+        public string MethodName { get; internal set; }
+
+        public event EventHandler<AsyncCompletedEventArgs> Completed
+        {
+            add
+            {
+                lock (_sync)
+                {
+                    Tracer.LogVerbose("add_Completed");
+                    CompletedInternal += value;
+                }
+            }
+            remove
+            {
+                lock (_sync)
+                {
+                    Tracer.LogVerbose("remove_Completed");
+                    CompletedInternal -= value;
+                    Debug.Assert(CompletedInternal.GetInvocationList().Length == 1); // account for empty delegate
+                }
+            }
+        }
+    }
     [Cmdlet(VerbsLifecycle.Register, "AsyncCallEvent")]
     public class RegisterAsyncCallEventCommand : ObjectEventRegistrationBase
     {
-        [UsedImplicitly]
-        public class BindingInfo
-        {
-            public BindingInfo()
-            {
-                ID = Guid.NewGuid();
-            }
-
-            internal void OnCompleted(AsyncCompletedEventArgs args)
-            {
-                var temp = Completed;
-                if (temp != null)
-                {
-                    temp(this, args);
-                }
-            }
-
-            public Guid ID { get; private set; }
-
-            public string MethodName { get; set; }
-
-            public event EventHandler<AsyncCompletedEventArgs> Completed;
-        }
-
         private static readonly object _sync = new object();
         private static readonly ConditionalWeakTable<object, BindingInfo> _sourceObjects;
+
+        private object _baseObject;
 
         static RegisterAsyncCallEventCommand()
         {
@@ -66,6 +99,8 @@ namespace Nivot.PowerShell.Async.Commands
             }
 
             base.BeginProcessing();
+
+            _baseObject = InputObject.BaseObject;
         }
 
         private void EnsureAsynchronousMethodProvided()
@@ -80,15 +115,15 @@ namespace Nivot.PowerShell.Async.Commands
 
             bool isStatic = false;
             Type targetType;
-            if ((InputObject.BaseObject as Type) != null)
+            if ((_baseObject as Type) != null)
             {
-                targetType = (Type)InputObject.BaseObject;
+                targetType = (Type)_baseObject;
                 isStatic = true;
                 this.WriteVerbose("InputObject is a Type: " + targetType.Name);
             }
             else
             {
-                targetType = InputObject.BaseObject.GetType();
+                targetType = _baseObject.GetType();
                 this.WriteVerbose("InputObject is an instance of " + targetType.Name);
             }
 
@@ -141,7 +176,7 @@ namespace Nivot.PowerShell.Async.Commands
                 signature.CopyTo(beginFuncSignature, 0);
                 beginFuncSignature[signature.Length] = typeof(IAsyncResult); // return
                 var beginHandler = begin.CreateDelegate(openFunc.MakeGenericType(beginFuncSignature),
-                    isStatic ? targetType : InputObject.BaseObject);
+                    isStatic ? targetType : _baseObject);
 
                 // End method has a fixed parameter count of 1.
                 MethodInfo end = targetType.GetMethod(
@@ -154,30 +189,40 @@ namespace Nivot.PowerShell.Async.Commands
 
                 Type[] endFuncSignature;
                 Type closeFunc; // (IAsyncResult) => dynamic (end.ReturnType) || void
-
-                if (end.ReturnType != typeof(void))
+                bool isVoid = false;
+                if (end.ReturnType == typeof(void))
+                {
+                    this.WriteVerbose("End is void, building Action<>");
+                    closeFunc = typeof(Action<>); // void return
+                    endFuncSignature = new Type[1] { typeof(IAsyncResult) };
+                    isVoid = true;
+                }
+                else
                 {
                     this.WriteVerbose("End is non-void, building Func<,>");
                     closeFunc = typeof(Func<,>);
                     endFuncSignature = new Type[2] { typeof(IAsyncResult), end.ReturnType };
                 }
-                else
-                {
-                    this.WriteVerbose("End is void, building Action<>");
-                    closeFunc = typeof(Action<>); // void return
-                    endFuncSignature = new Type[1] { typeof(IAsyncResult) };
-                }
                 var endHandler = end.CreateDelegate(closeFunc.MakeGenericType(endFuncSignature),
-                    isStatic ? targetType : InputObject.BaseObject);
+                    isStatic ? targetType : _baseObject);
 
-                var binding = this.GetBindingInfo(InputObject.BaseObject);
+                var binding = this.GetBindingInfo(_baseObject);
 
                 // BeginFoo(arg1, arg2, argN, AsyncCallback, object) : IAsyncResult // ..., callback, state
                 Action<IAsyncResult> callback = result =>
                     {
+                        Tracer.LogVerbose("Callback for: {0}", this.SourceIdentifier);
                         // raise event on BindingInfo
-
-                        dynamic retVal = endHandler.DynamicInvoke(result);
+                        object retVal = null;
+                        if (!isVoid)
+                        {
+                            retVal = endHandler.DynamicInvoke(result);
+                            Tracer.LogInfo("Retval: {0}", (retVal == null) ? "<null>" : retVal.GetType().Name);
+                        }
+                        else
+                        {
+                            endHandler.DynamicInvoke(result);
+                        }
                         binding.OnCompleted(new AsyncCompletedEventArgs(null, false, retVal)); // TODO: construct a custom EA
                     };
                 
@@ -186,6 +231,8 @@ namespace Nivot.PowerShell.Async.Commands
                 parameters[args.Length] = new AsyncCallback(callback);
                 parameters[args.Length + 1] = null; // object state
 
+                Tracer.LogInfo("Invoking Begin Handler");
+                this.WriteVerbose("Invoking Begin Handler");
                 var result2 = (IAsyncResult)beginHandler.DynamicInvoke(parameters);
 
                 // TODO: construct Task<> from begin/end pairing to abstract async method patterns
@@ -207,6 +254,8 @@ namespace Nivot.PowerShell.Async.Commands
             // hook up everything first
             base.EndProcessing();
 
+            //var binding = this.GetBindingInfo(_baseObject);
+            
             this.EnsureAsynchronousMethodProvided();
         }
 
@@ -215,7 +264,7 @@ namespace Nivot.PowerShell.Async.Commands
             // after the callback completes, we want it to auto-unregister
             this.MaxTriggerCount = 1;
 
-            BindingInfo binding = this.GetBindingInfo(InputObject);
+            BindingInfo binding = this.GetBindingInfo(_baseObject);
             
             this.WriteVerbose(String.Format("GetSourceObject(); ID is {0}", binding.ID));
 
@@ -229,7 +278,8 @@ namespace Nivot.PowerShell.Async.Commands
             string eventName = String.Format("{0}Completed", MethodName.Substring(5)); // trim "Begin"
             
             // subscription is unique per instance/event combo (this might be too restrictive?)
-            this.SourceIdentifier += ("_" + eventName);
+            Guid id = this.GetBindingInfo(_baseObject).ID;
+            this.SourceIdentifier = (id + "_" + eventName);
             
             this.WriteVerbose("GetSourceObjectEventName(): " + this.SourceIdentifier);
             
