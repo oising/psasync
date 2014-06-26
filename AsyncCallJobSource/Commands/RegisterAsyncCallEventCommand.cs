@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Linq;
+using System.Linq.Expressions;
 using System.Management.Automation;
 using System.Reflection;
 using System.Runtime.CompilerServices;
@@ -103,7 +104,7 @@ namespace Nivot.PowerShell.Async.Commands
             _baseObject = InputObject.BaseObject;
         }
 
-        private void EnsureAsynchronousMethodProvided()
+        private void ProcessCallbackBinding()
         {
             // Trying to roughly follow http://msdn.microsoft.com/en-us/library/ms228974(v=vs.110).aspx
             // "Event-based async pattern"
@@ -130,7 +131,8 @@ namespace Nivot.PowerShell.Async.Commands
             // Func<T1, Tn..., AsyncCallback, object, IAsyncResult> begin,
             // Func<IAsyncResult, dynamic> end)
             // begin/end?
-            if (MethodName.StartsWith("Begin"))
+            if (MethodName.StartsWith("Begin",
+                StringComparison.OrdinalIgnoreCase))
             {
                 WriteVerbose("Method is AsyncCallback Begin/End pairing style.");
 
@@ -163,32 +165,59 @@ namespace Nivot.PowerShell.Async.Commands
                         {
                             endHandler.DynamicInvoke(result);
                         }
-                        binding.OnCompleted(new AsyncCompletedEventArgs(null, false, retVal)); // TODO: construct a custom EA
+                        // TODO: construct a custom EA
+                        binding.OnCompleted(new AsyncCompletedEventArgs(null, false, retVal));
                     };
                 
-                var parameters = new object[args.Length + 2];
-                args.CopyTo(parameters, 0);
-                parameters[args.Length] = new AsyncCallback(callback);
-                parameters[args.Length + 1] = null; // object state
+                var beginParameters = new object[args.Length + 2];
+                args.CopyTo(beginParameters, 0);
+                beginParameters[args.Length] = new AsyncCallback(callback);
+                beginParameters[args.Length + 1] = null; // object state
 
-                Tracer.LogInfo("Invoking Begin Handler");
-                this.WriteVerbose("Invoking Begin Handler");
-                var result2 = (IAsyncResult)beginHandler.DynamicInvoke(parameters);
+                //Tracer.LogInfo("Invoking Begin Handler");
+                //this.WriteVerbose("Invoking Begin Handler");
+                //var result2 = (IAsyncResult)beginHandler.DynamicInvoke(beginParameters);
 
-                // TODO: construct Task<> from begin/end pairing to abstract async method patterns
-                if (isVoid)
+                // create Type array for signature
+                var factorySignature = new Type[args.Length + 3];
+                factorySignature[0] = beginHandler.GetType();
+                factorySignature[1] = endHandler.GetType();
+                Type.GetTypeArray(args).CopyTo(factorySignature, 2);
+                factorySignature[factorySignature.Length - 1] = typeof(object); // state
+
+                dynamic factory = null;
+                factory = isVoid ? (dynamic)Task.Factory : Task<dynamic>.Factory;
+                
+                //MethodInfo factoryHandler = factory.GetType().GetMethod("FromAsync", factorySignature);
+                //Debug.Assert(factoryHandler != null, "factoryHandler != null");
+
+                // create object array for parameters
+                var factoryParameters = new object[args.Length + 3];
+                factoryParameters[0] = beginHandler;
+                factoryParameters[1] = endHandler;
+                args.CopyTo(factoryParameters, 2);
+                factoryParameters[factoryParameters.Length - 1] = null;
+
+                switch (args.Length)
                 {
-                    var factory = Task.Factory; //.FromAsync()
+                    case 0:
+                        break;
+                    case 1:
+                        break;
+                    case 2:
+                        break;
+                    case 3:
+                        break;
+                    default:
+                        break;
                 }
-                else
-                {
-                    var factory = Task<dynamic>.Factory; //.FromAsync()
-                }
+                // write task to output
+                //this.WriteObject(factoryHandler.Invoke(factory, factoryParameters));
 
                 //factory
-                WriteObject(result2);
+                //WriteObject(result2);
             }
-            else if (MethodName.EndsWith("Async"))
+            else if (MethodName.EndsWith("Async", StringComparison.OrdinalIgnoreCase))
             {
                 this.WriteWarning("*Async method handling not implemented, yet.");
             }
@@ -199,7 +228,16 @@ namespace Nivot.PowerShell.Async.Commands
 
         private Delegate BuildEndHandler(Type targetType, bool isStatic, out bool isVoid)
         {
-            MethodInfo end = targetType.GetMethod(this.MethodName.Replace("Begin", "End"), new[] { typeof(IAsyncResult) });
+            BindingFlags flags = BindingFlags.IgnoreCase | BindingFlags.Public | BindingFlags.InvokeMethod;
+            flags |= isStatic ? BindingFlags.Static : BindingFlags.Instance;
+
+            MethodInfo end = targetType.GetMethod(
+                this.MethodName.Replace("Begin", "End"),
+                flags,
+                null,
+                new[] { typeof(IAsyncResult) },
+                null);
+
             if (end == null)
             {
                 throw new PSArgumentException("Could not find matching end method.");
@@ -212,14 +250,14 @@ namespace Nivot.PowerShell.Async.Commands
             {
                 this.WriteVerbose("End is void, building Action<>");
                 closeFunc = typeof(Action<>); // void return
-                endFuncSignature = new Type[1] { typeof(IAsyncResult) };
+                endFuncSignature = new[] { typeof(IAsyncResult) };
                 isVoid = true;
             }
             else
             {
                 this.WriteVerbose("End is non-void, building Func<,>");
                 closeFunc = typeof(Func<,>);
-                endFuncSignature = new Type[2] { typeof(IAsyncResult), end.ReturnType };
+                endFuncSignature = new[] { typeof(IAsyncResult), end.ReturnType };
             }
             var endHandler = end.CreateDelegate(
                 closeFunc.MakeGenericType(endFuncSignature),
@@ -254,7 +292,16 @@ namespace Nivot.PowerShell.Async.Commands
                         "ArgumentList");
             }
 
-            MethodInfo begin = targetType.GetMethod(this.MethodName, signature);
+            BindingFlags flags = BindingFlags.IgnoreCase | BindingFlags.Public | BindingFlags.InvokeMethod;
+            flags |= isStatic ? BindingFlags.Static : BindingFlags.Instance;
+
+            MethodInfo begin = targetType.GetMethod(
+                this.MethodName,
+                flags,
+                null,
+                signature,
+                null);
+
             if (begin == null)
             {
                 throw new PSArgumentException(
@@ -270,6 +317,7 @@ namespace Nivot.PowerShell.Async.Commands
             var beginHandler = begin.CreateDelegate(
                 openFunc.MakeGenericType(beginFuncSignature),
                 isStatic ? targetType : this._baseObject);
+
             return beginHandler;
         }
 
@@ -277,10 +325,8 @@ namespace Nivot.PowerShell.Async.Commands
         {
             // hook up everything first
             base.EndProcessing();
-
-            //var binding = this.GetBindingInfo(_baseObject);
             
-            this.EnsureAsynchronousMethodProvided();
+            this.ProcessCallbackBinding();
         }
 
         protected override object GetSourceObject()

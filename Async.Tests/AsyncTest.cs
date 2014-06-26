@@ -1,14 +1,11 @@
-﻿using System;
+using System;
 using System.Diagnostics;
-using System.IO;
 using System.Threading.Tasks;
 
 using Windows.Foundation;
 using Windows.Storage;
 
-using Microsoft.CSharp.RuntimeBinder;
-
-namespace Nivot.PowerShell.Async
+namespace Async.Tests
 {
     public static class AsyncTest
     {
@@ -44,8 +41,8 @@ namespace Nivot.PowerShell.Async
         }
 
         public static async Task<dynamic> GetBeginEndPairAsAwaitable<T1>(T1 arg1,
-            Func<T1, AsyncCallback, object, IAsyncResult> begin,
-            Func<IAsyncResult, dynamic> end)
+                                                                         Func<T1, AsyncCallback, object, IAsyncResult> begin,
+                                                                         Func<IAsyncResult, dynamic> end)
         {
             return await Task<dynamic>.Factory.FromAsync(begin, end, arg1, null);
         }
@@ -84,20 +81,5 @@ namespace Nivot.PowerShell.Async
 
             //        }
         }
-    }
-
-    internal class AsyncCallInfo
-    {
-        public AsyncCallInfo(Guid id, dynamic callSite)
-        {
-            this.Id = id;
-            this.CallSite = callSite;
-        }
-
-        public Guid Id;
-
-        public dynamic CallSite;
-
-        public AsyncStatus Status;
     }
 }

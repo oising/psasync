@@ -1,10 +1,9 @@
 ﻿using System;
-using System.Diagnostics;
 using System.Management.Automation;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace Nivot.PowerShell.Async
+namespace Nivot.PowerShell.Async.Jobs
 {
     public class AsyncCallJob : Job2
     {
@@ -19,9 +18,9 @@ namespace Nivot.PowerShell.Async
 
         private void EnsureNotCancelled()
         {
-            if (_cancelToken.IsCancellationRequested)
+            if (this._cancelToken.IsCancellationRequested)
             {
-                throw new OperationCanceledException("Cancellation was requested.", _cancelToken);
+                throw new OperationCanceledException("Cancellation was requested.", this._cancelToken);
             }
         }
 

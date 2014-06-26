@@ -52,9 +52,9 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="AsyncCallInfo.cs" />
-    <Compile Include="AsyncCallJob.cs" />
-    <Compile Include="ASyncCallJobInvocationInfo.cs" />
-    <Compile Include="AsyncCallJobSourceAdapter.cs" />
+    <Compile Include="Jobs\AsyncCallJob.cs" />
+    <Compile Include="Jobs\ASyncCallJobInvocationInfo.cs" />
+    <Compile Include="Jobs\AsyncCallJobSourceAdapter.cs" />
     <Compile Include="AsyncOperationWrapper.cs" />
     <Compile Include="Commands\RegisterAsyncCallEventCommand.cs" />
     <Compile Include="JetBrains.Annotations.cs" />
