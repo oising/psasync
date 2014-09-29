@@ -70,24 +70,25 @@ namespace Nivot.PowerShell.Async.Commands
             }
         }
     }
+
     [Cmdlet(VerbsLifecycle.Register, "AsyncCallEvent")]
     public class RegisterAsyncCallEventCommand : ObjectEventRegistrationBase
     {
-        private static readonly object _sync = new object();
-        private static readonly ConditionalWeakTable<object, BindingInfo> _sourceObjects;
+        private static readonly object Sync = new object();
+        private static readonly ConditionalWeakTable<object, BindingInfo> SourceObjectTable;
 
         private object _baseObject;
 
         static RegisterAsyncCallEventCommand()
         {
-            _sourceObjects = new ConditionalWeakTable<object, BindingInfo>();
+            SourceObjectTable = new ConditionalWeakTable<object, BindingInfo>();
         }
 
         private BindingInfo GetBindingInfo<T>(T reference) where T : class
         {
-            lock (_sync)
+            lock (Sync)
             {
-                return _sourceObjects.GetOrCreateValue(reference);
+                return SourceObjectTable.GetOrCreateValue(reference);
             }
         }
 
@@ -136,86 +137,7 @@ namespace Nivot.PowerShell.Async.Commands
             {
                 WriteVerbose("Method is AsyncCallback Begin/End pairing style.");
 
-                var args = ArgumentList ?? new Type[0];
-                var beginSignature = new Type[args.Length + 2];
-                Type.GetTypeArray(args).CopyTo(beginSignature, index: 0);
-                (new[] { typeof(AsyncCallback), typeof(object)}).CopyTo(beginSignature, args.Length);
-
-                // Begin method has a variable parameter count of between 0 and 4 extra (on top of asyncallback and state.)
-                var beginHandler = this.BuildBeginHandler(targetType, beginSignature, isStatic);
-
-                // End method has a fixed parameter count of 1.
-                bool isVoid;
-                var endHandler = this.BuildEndHandler(targetType, isStatic, out isVoid);
-
-                var binding = this.GetBindingInfo(_baseObject);
-
-                // BeginFoo(arg1, arg2, argN, AsyncCallback, object) : IAsyncResult // ..., callback, state
-                Action<IAsyncResult> callback = result =>
-                    {
-                        Tracer.LogVerbose("Callback for: {0}", this.SourceIdentifier);
-                        // raise event on BindingInfo
-                        object retVal = null;
-                        if (!isVoid)
-                        {
-                            retVal = endHandler.DynamicInvoke(result);
-                            Tracer.LogInfo("Retval: {0}", (retVal == null) ? "<null>" : retVal.GetType().Name);
-                        }
-                        else
-                        {
-                            endHandler.DynamicInvoke(result);
-                        }
-                        // TODO: construct a custom EA
-                        binding.OnCompleted(new AsyncCompletedEventArgs(null, false, retVal));
-                    };
-                
-                var beginParameters = new object[args.Length + 2];
-                args.CopyTo(beginParameters, 0);
-                beginParameters[args.Length] = new AsyncCallback(callback);
-                beginParameters[args.Length + 1] = null; // object state
-
-                //Tracer.LogInfo("Invoking Begin Handler");
-                //this.WriteVerbose("Invoking Begin Handler");
-                //var result2 = (IAsyncResult)beginHandler.DynamicInvoke(beginParameters);
-
-                // create Type array for signature
-                var factorySignature = new Type[args.Length + 3];
-                factorySignature[0] = beginHandler.GetType();
-                factorySignature[1] = endHandler.GetType();
-                Type.GetTypeArray(args).CopyTo(factorySignature, 2);
-                factorySignature[factorySignature.Length - 1] = typeof(object); // state
-
-                dynamic factory = null;
-                factory = isVoid ? (dynamic)Task.Factory : Task<dynamic>.Factory;
-                
-                //MethodInfo factoryHandler = factory.GetType().GetMethod("FromAsync", factorySignature);
-                //Debug.Assert(factoryHandler != null, "factoryHandler != null");
-
-                // create object array for parameters
-                var factoryParameters = new object[args.Length + 3];
-                factoryParameters[0] = beginHandler;
-                factoryParameters[1] = endHandler;
-                args.CopyTo(factoryParameters, 2);
-                factoryParameters[factoryParameters.Length - 1] = null;
-
-                switch (args.Length)
-                {
-                    case 0:
-                        break;
-                    case 1:
-                        break;
-                    case 2:
-                        break;
-                    case 3:
-                        break;
-                    default:
-                        break;
-                }
-                // write task to output
-                //this.WriteObject(factoryHandler.Invoke(factory, factoryParameters));
-
-                //factory
-                //WriteObject(result2);
+                BindBeginEndStyleMethod(targetType, isStatic);
             }
             else if (MethodName.EndsWith("Async", StringComparison.OrdinalIgnoreCase))
             {
@@ -224,6 +146,90 @@ namespace Nivot.PowerShell.Async.Commands
             // winrt / task?
 
             // 
+        }
+
+        private void BindBeginEndStyleMethod(Type targetType, bool isStatic)
+        {
+            var args = ArgumentList ?? new Type[0];
+            var beginSignature = new Type[args.Length + 2];
+            Type.GetTypeArray(args).CopyTo(beginSignature, index: 0);
+            (new[] {typeof (AsyncCallback), typeof (object)}).CopyTo(beginSignature, args.Length);
+
+            // Begin method has a variable parameter count of between 0 and 4 extra (on top of asyncallback and state.)
+            var beginHandler = this.BuildBeginHandler(targetType, beginSignature, isStatic);
+
+            // End method has a fixed parameter count of 1.
+            bool isVoid;
+            var endHandler = this.BuildEndHandler(targetType, isStatic, out isVoid);
+
+            var binding = this.GetBindingInfo(_baseObject);
+
+            // BeginFoo(arg1, arg2, argN, AsyncCallback, object) : IAsyncResult // ..., callback, state
+            Action<IAsyncResult> callback = result =>
+            {
+                Tracer.LogVerbose("Callback for: {0}", this.SourceIdentifier);
+                // raise event on BindingInfo
+                object retVal = null;
+                if (!isVoid)
+                {
+                    retVal = endHandler.DynamicInvoke(result);
+                    Tracer.LogInfo("Retval: {0}", (retVal == null) ? "<null>" : retVal.GetType().Name);
+                }
+                else
+                {
+                    endHandler.DynamicInvoke(result);
+                }
+                // TODO: construct a custom EA
+                binding.OnCompleted(new AsyncCompletedEventArgs(null, false, retVal));
+            };
+
+            var beginParameters = new object[args.Length + 2];
+            args.CopyTo(beginParameters, 0);
+            beginParameters[args.Length] = new AsyncCallback(callback);
+            beginParameters[args.Length + 1] = null; // object state
+
+            //Tracer.LogInfo("Invoking Begin Handler");
+            //this.WriteVerbose("Invoking Begin Handler");
+            //var result2 = (IAsyncResult)beginHandler.DynamicInvoke(beginParameters);
+
+            // create Type array for signature
+            var factorySignature = new Type[args.Length + 3];
+            factorySignature[0] = beginHandler.GetType();
+            factorySignature[1] = endHandler.GetType();
+            Type.GetTypeArray(args).CopyTo(factorySignature, 2);
+            factorySignature[factorySignature.Length - 1] = typeof (object); // state
+
+            dynamic factory = null;
+            factory = isVoid ? (dynamic) Task.Factory : Task<dynamic>.Factory;
+
+            //MethodInfo factoryHandler = factory.GetType().GetMethod("FromAsync", factorySignature);
+            //Debug.Assert(factoryHandler != null, "factoryHandler != null");
+
+            // create object array for parameters
+            var factoryParameters = new object[args.Length + 3];
+            factoryParameters[0] = beginHandler;
+            factoryParameters[1] = endHandler;
+            args.CopyTo(factoryParameters, 2);
+            factoryParameters[factoryParameters.Length - 1] = null;
+
+            switch (args.Length)
+            {
+                case 0:
+                    break;
+                case 1:
+                    break;
+                case 2:
+                    break;
+                case 3:
+                    break;
+                default:
+                    break;
+            }
+            // write task to output
+            //this.WriteObject(factoryHandler.Invoke(factory, factoryParameters));
+
+            //factory
+            //WriteObject(result2);
         }
 
         private Delegate BuildEndHandler(Type targetType, bool isStatic, out bool isVoid)
@@ -367,7 +373,7 @@ namespace Nivot.PowerShell.Async.Commands
 
         //Func<IAsyncResult, dynamic> end)
         [Parameter(Mandatory = false)]
-        [ValidateNotNull]
+        //[ValidateNotNull]
         public object[] ArgumentList { get; set; }
     }
 }

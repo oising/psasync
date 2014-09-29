@@ -28,7 +28,7 @@ $file
 #==================
 
 del c:\temp\arse*.*
-ipmo c:\projects\powershell\AsyncCallJobSource\AsyncCallJobSource\bin\Debug\Nivot.PowerShell.Async.dll
+ipmo c:\local\psasync\AsyncCallJobSource\bin\Debug\Nivot.PowerShell.Async.dll
 $s = new-object io.filestream "c:\temp\arse2.txt", "createnew"
 [byte[]]$data = 0..254
 Register-AsyncCallEvent -InputObject $s -MethodName BeginWrite -ArgumentList $data, 0, 100 -verbose -action {

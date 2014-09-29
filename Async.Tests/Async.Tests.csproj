@@ -37,7 +37,11 @@
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="Microsoft.CSharp" />
+    <Reference Include="Sigil">
+      <HintPath>..\packages\Sigil.4.2.2\lib\net45\Sigil.dll</HintPath>
+    </Reference>
     <Reference Include="System" />
+    <Reference Include="System.Management.Automation, Version=3.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35, processorArchitecture=MSIL" />
     <Reference Include="System.Runtime" />
     <Reference Include="System.Runtime.InteropServices.WindowsRuntime" />
     <Reference Include="System.Runtime.WindowsRuntime, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089, processorArchitecture=MSIL">
@@ -61,6 +65,8 @@
   <ItemGroup>
     <Compile Include="AsyncCallInfo.cs" />
     <Compile Include="AsyncTest.cs" />
+    <Compile Include="AsyncResult.cs" />
+    <Compile Include="NullTaskScheduler.cs" />
     <Compile Include="UnitTest1.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
@@ -69,6 +75,9 @@
       <Project>{24dec029-addb-4f58-af33-79f14bb66d3e}</Project>
       <Name>Nivot.PowerShell.Async</Name>
     </ProjectReference>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="packages.config" />
   </ItemGroup>
   <Choose>
     <When Condition="'$(VisualStudioVersion)' == '10.0' And '$(IsCodedUITest)' == 'True'">

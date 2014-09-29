@@ -7,6 +7,7 @@ using Windows.Storage;
 
 namespace Async.Tests
 {
+#if SUPPORTS_WINRT
     public static class AsyncTest
     {
         public async static Task<StorageFile> GetFileAsync(string path)
@@ -82,4 +83,5 @@ namespace Async.Tests
             //        }
         }
     }
+#endif
 }

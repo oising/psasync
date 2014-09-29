@@ -1,4 +1,6 @@
-﻿using System;
+﻿//#define SUPPORTS_WINRT
+
+using System;
 using System.Diagnostics;
 using System.IO;
 using System.Threading.Tasks;
@@ -12,12 +14,14 @@ namespace Nivot.PowerShell.Async
 {
     public static class AsyncTest
     {
+
+#if SUPPORTS_WINRT
         public async static Task<StorageFile> GetFileAsync(string path)
         {
             // [Windows.Storage.StorageFile]::GetFileFromPathAsync($path)
             return await StorageFile.GetFileFromPathAsync(path);
         }
-
+#endif
         public static IAsyncOperation<StorageFile> GetFileAsyncWinRT(string path)
         {
             return StorageFile.GetFileFromPathAsync(path);

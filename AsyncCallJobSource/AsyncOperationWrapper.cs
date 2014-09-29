@@ -1,4 +1,5 @@
-﻿using System;
+﻿// #define SUPPORTS_WINRT
+using System;
 using System.Diagnostics;
 using System.Threading.Tasks;
 
@@ -6,6 +7,7 @@ using Windows.Foundation;
 
 namespace Nivot.PowerShell.Async
 {
+#if SUPPORTS_WINRT
     internal class AsyncOperationWrapper<T> : IDisposable
     {
         private IAsyncOperation<T> _asyncOperation;
@@ -67,4 +69,5 @@ namespace Nivot.PowerShell.Async
             throw new TaskCanceledException(task);
         }
     }
+#endif
 }

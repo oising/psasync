@@ -31,6 +31,9 @@
     <WarningLevel>4</WarningLevel>
   </PropertyGroup>
   <ItemGroup>
+    <Reference Include="Sigil">
+      <HintPath>..\packages\Sigil.4.2.2\lib\net45\Sigil.dll</HintPath>
+    </Reference>
     <Reference Include="System" />
     <Reference Include="System.Core" />
     <Reference Include="System.Management.Automation, Version=3.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35, processorArchitecture=MSIL">
@@ -62,7 +65,10 @@
     <Compile Include="Tracer.cs" />
     <Compile Include="TracerImpl.cs" />
   </ItemGroup>
-  <ItemGroup />
+  <ItemGroup>
+    <None Include="packages.config" />
+    <None Include="Scripts\tests.ps1" />
+  </ItemGroup>
   <ItemGroup>
     <Content Include="notes.txt" />
   </ItemGroup>
