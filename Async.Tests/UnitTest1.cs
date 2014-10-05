@@ -14,7 +14,6 @@ using System.Runtime.Remoting.Messaging;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using JetBrains.Annotations;
 using Microsoft.CSharp.RuntimeBinder;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -334,11 +333,11 @@ $timing.TotalSeconds
                 new CSharpArgumentInfo[]
                 {
                     CSharpArgumentInfo.Create(CSharpArgumentInfoFlags.None, null),
-                    CSharpArgumentInfo.Create(CSharpArgumentInfoFlags.UseCompileTimeType, null),
-                    CSharpArgumentInfo.Create(CSharpArgumentInfoFlags.UseCompileTimeType, null),
+                    CSharpArgumentInfo.Create(CSharpArgumentInfoFlags.UseCompileTimeType, null), // beginType
+                    CSharpArgumentInfo.Create(CSharpArgumentInfoFlags.UseCompileTimeType, null), // endType
                     CSharpArgumentInfo.Create(
                         CSharpArgumentInfoFlags.Constant |
-                        CSharpArgumentInfoFlags.UseCompileTimeType, null)
+                        CSharpArgumentInfoFlags.UseCompileTimeType, null) // state (const 42)
                 });
 
             // COMPILER:
@@ -366,11 +365,12 @@ $timing.TotalSeconds
                 // TODO
             }
 
+            // TODO: can be parameterized (methodname, binderflags, argumentinfo array)
             CallSiteBinder binder = Binder.InvokeMember(CSharpBinderFlags.None, "FromAsync", null,
                 typeof (UnitTest1),
                 new CSharpArgumentInfo[]
                 {
-                    CSharpArgumentInfo.Create(CSharpArgumentInfoFlags.None, null), // This should never change
+                    CSharpArgumentInfo.Create(CSharpArgumentInfoFlags.None, null), // This should never change (except, um, static? - or is that next one?)
                     CSharpArgumentInfo.Create(CSharpArgumentInfoFlags.UseCompileTimeType, null),
                     // This should never change (always a func)
                     CSharpArgumentInfo.Create(CSharpArgumentInfoFlags.UseCompileTimeType, null),
@@ -380,7 +380,7 @@ $timing.TotalSeconds
                         CSharpArgumentInfoFlags.UseCompileTimeType, null) // typeof state (constant if int)
                 });
 
-            Type callSiteType = typeof (Func<,,,,,>) // TODO: this open type must be found at runtime
+            Type callSiteParameterType = typeof (Func<,,,,,>) // TODO: this open type must be found at runtime
                 .MakeGenericType(
                     typeof (CallSite),
                     typeof (Object),
@@ -388,9 +388,12 @@ $timing.TotalSeconds
                     typeof (Func<,,>).MakeGenericType(typeof (AsyncCallback), typeof (Object), typeof (IAsyncResult)),
                     /*endType,*/ typeof (Action<>).MakeGenericType(typeof (IAsyncResult)),
                     /*state*/ typeof (Int32),
-                    typeof (Object));
-            var createMethodInfo = callSiteType.GetMethod("Create", new Type[] {typeof (CallSiteBinder)});
-            object site21 = createMethodInfo.Invoke(callSiteType, new object[] {binder});
+                     typeof (Object)); // object == non-void returntype for target?
+            
+            // TODO: replace this with dynamic (args/method name are invariant)
+            Type callsiteType = typeof (CallSite<>).MakeGenericType(callSiteParameterType);
+            var createMethodInfo = callsiteType.GetMethod("Create", new Type[] { typeof(CallSiteBinder) });
+            object site21 = createMethodInfo.Invoke(callsiteType, new object[] { binder });
 #endif
 
 #if USE_COMPILER_CODEGEN
@@ -399,29 +402,29 @@ $timing.TotalSeconds
                 new Func<AsyncCallback, object, IAsyncResult>(waiter.BeginDoWaitNoResult),
                 new Action<IAsyncResult>(waiter.EndDoWaitNoResult), 0x2a); // << state
 #else
-            var targetMethodInfoObj3 = site21.GetType()
-                .GetMethod("Target",
-                    new Type[]
-                    {
-                        site21.GetType(), factory.GetType(), beginType, endType, stateType
-                    });
-            object obj3 = targetMethodInfoObj3.Invoke(site21, new object[]
-            {
-                site21, factory, begin, end, state
-            });
+            // TODO: could replace this with dynamic also
+            var targetDelegate = (Delegate)site21.GetType().GetField("Target").GetValue(site21);
+            object obj3 = targetDelegate.DynamicInvoke(site21, factory, begin, end, state);
 #endif
 
 #if USE_COMPILER_CODEGEN
     // COMPILER: bind to Task.Wait
             var site22 =
-                CallSite<Action<CallSite, object>>.Create(Binder.InvokeMember(CSharpBinderFlags.ResultDiscarded, "Wait",
-                    null, typeof (UnitTest1),
-                    new CSharpArgumentInfo[] {CSharpArgumentInfo.Create(CSharpArgumentInfoFlags.None, null)}));
+                CallSite<Action<CallSite, object>>.Create(
+                    Binder.InvokeMember(
+                        CSharpBinderFlags.ResultDiscarded,
+                        "Wait",
+                        null,
+                        typeof (UnitTest1),
+                        new CSharpArgumentInfo[] {
+                            CSharpArgumentInfo.Create(CSharpArgumentInfoFlags.None, null)
+                        }));
 
             // COMPILER: invoke task.Wait()
             site22.Target(site22, obj3);        
 #else
-
+            Assert.IsInstanceOfType(obj3, typeof(Task));
+            ((dynamic) obj3).Wait();
 #endif
         }
 
@@ -437,44 +440,35 @@ $timing.TotalSeconds
             var waiter = new Waiter(1);
             dynamic factory = Task.Factory;
 
-            var stateInt = factory.FromAsync(
-                new Func<AsyncCallback, object, IAsyncResult>(waiter.BeginDoWaitNoResult), // begin
-                new Action<IAsyncResult>(waiter.EndDoWaitNoResult), // end
-                42); // state
+            var begin = new Func<AsyncCallback, object, IAsyncResult>(waiter.BeginDoWaitNoResult);
+            var end = new Action<IAsyncResult>(waiter.EndDoWaitNoResult);
 
-            var stateDouble = factory.FromAsync(
-                new Func<AsyncCallback, object, IAsyncResult>(waiter.BeginDoWaitNoResult), // begin
-                new Action<IAsyncResult>(waiter.EndDoWaitNoResult), // end
-                42d); // state
+            var stateInt = factory.FromAsync(begin, end, 42); // state
+
+            var stateDouble = factory.FromAsync(begin, end, 42d); // state
+
+            int number = 42;
+            var stateIntRef = factory.FromAsync(begin, end, number);
 
             var foo = new FooBar(1, 2);
-            var stateValue = factory.FromAsync(
-                new Func<AsyncCallback, object, IAsyncResult>(waiter.BeginDoWaitNoResult), // begin
-                new Action<IAsyncResult>(waiter.EndDoWaitNoResult), // end
-                foo); // state
+            var stateValue = factory.FromAsync(begin, end, foo); // state
 
             var dtype = new DynamicTypes();
-            var stateClass = factory.FromAsync(
-                new Func<AsyncCallback, object, IAsyncResult>(waiter.BeginDoWaitNoResult), // begin
-                new Action<IAsyncResult>(waiter.EndDoWaitNoResult), // end
-                dtype); // state
+            var stateClass = factory.FromAsync(begin, end, dtype); // state
 
             var str = "Hello";
-            var stateString = factory.FromAsync(
-                new Func<AsyncCallback, object, IAsyncResult>(waiter.BeginDoWaitNoResult), // begin
-                new Action<IAsyncResult>(waiter.EndDoWaitNoResult), // end
-                str); // state
+            var stateString = factory.FromAsync(begin, end, str); // state
 
             object nullRef = null;
-            var stateNullRef = factory.FromAsync(
-                new Func<AsyncCallback, object, IAsyncResult>(waiter.BeginDoWaitNoResult), // begin
-                new Action<IAsyncResult>(waiter.EndDoWaitNoResult), // end
-                nullRef); // state
+            var stateNullRef = factory.FromAsync(begin, end, nullRef); // state
 
-            var stateNullLit = factory.FromAsync(
-                new Func<AsyncCallback, object, IAsyncResult>(waiter.BeginDoWaitNoResult), // begin
-                new Action<IAsyncResult>(waiter.EndDoWaitNoResult), // end
-                null); // state
+            var stateNullLit = factory.FromAsync(begin, end, null); // state
+
+            // result discarded (not assigned)
+            factory.FromAsync(begin, end, null); // state
+
+            dynamic t = typeof (Console);
+            t.Beep();
         }
 
         //[TestMethod]
@@ -705,14 +699,15 @@ $timing.TotalSeconds
             //;
         }
     }
-}
 
-internal struct FooBar
+
+    internal struct FooBar
     {
         public int X { get; set; }
         public int Y { get; set; }
 
-        internal FooBar(int x, int y) : this()
+        internal FooBar(int x, int y)
+            : this()
         {
             X = x;
             Y = y;
@@ -722,65 +717,4 @@ internal struct FooBar
     internal class DynamicTypes
     {
     }
-
-    internal class TaskBuilder
-    {
-        private Type _beginType;
-        private Delegate _beginHandler;
-        private Type _endType;
-        private Delegate _endHandler;
-
-        public TaskBuilder SetBegin([NotNull] Delegate begin)
-        {
-            if (begin == null) throw new ArgumentNullException("begin");
-            
-            _beginHandler = begin;
-            _beginType = begin.GetType();
-
-            return this;
-        }
-
-        public TaskBuilder SetEnd([NotNull] Delegate end)
-        {
-            if (end == null) throw new ArgumentNullException("end");
-            
-            _endHandler = end;
-            _endType = end.GetType();
-            
-            return this;
-        }
-        
-        public Task ToTask(params object[] arguments)
-        {
-            if (_beginHandler == null || _endHandler == null)
-            {
-                throw new InvalidOperationException("SetBegin and/or EndBegin must be used to assign handlers.");
-            }
-            return null;
-        }
-
-        private Type GetDelegateType(params Type[] typeArguments)
-        {
-            Type type = null;
-            switch (typeArguments.Length)
-            {
-                case 3:
-                    type = typeof(Func<,,,,,>);
-                    break;
-                case 2:
-                    type = typeof(Func<,,,,>);
-                    break;
-                case 1:
-                    type = typeof(Func<,,,>);
-                    break;
-                case 0:
-                    type = typeof(Func<,,>);
-                    break;
-                default:
-                    throw new ArgumentOutOfRangeException("typeArguments",
-                        "Too many arguments for Begin handler!");
-            }
-            return type.MakeGenericType(typeArguments);
-        }
-    }
-
+}

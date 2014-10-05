@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Linq;
 using System.Management.Automation.Runspaces;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using JetBrains.Annotations;
 
@@ -42,6 +43,8 @@ namespace Async.Tests
                 }
                 return true; // task was executed inline (should it be removed now?)
             }
+            
+            Trace.WriteLine(String.Format("No runspace on tid: {0:x4}", Thread.CurrentThread.ManagedThreadId));
             return false;
         }
 

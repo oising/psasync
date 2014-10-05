@@ -7,6 +7,9 @@ http://blogs.msdn.com/b/eternalcoding/archive/2013/10/29/how-to-use-specific-win
 Get a list of all WinRT APIs callable from the desktop
 http://iinspectable.wordpress.com/2013/08/18/dualapi-finder-or-listing-winrt-types-usable-by-desktop-apps/
 
+APM, EAP, TAP interop
+http://msdn.microsoft.com/en-us/library/hh873178(v=vs.110).aspx
+
 
 inproc taskscheduler:
    - custom synchronizationcontext that queues tasks as one-off eventing subscriptions (maxtriggercount is 1) and also raises the event

@@ -1,10 +1,12 @@
 using System;
+using System.Diagnostics;
 using System.Threading;
 
 namespace Async.Tests
 {
     public class AsyncResultNoResult : IAsyncResult
     {
+        private static readonly object SyncLock = new object();
         // Fields set at construction which never change while
         // operation is pending
         private readonly AsyncCallback _asyncCallback;
@@ -29,7 +31,14 @@ namespace Async.Tests
             _asyncCallback = asyncCallback;
             _asyncState = state;
         }
-        
+
+        protected static void Log(string format, params object[] parameters)
+        {
+            int tid = Thread.CurrentThread.ManagedThreadId;
+            string message = String.Format(format, parameters);
+            Trace.WriteLine(String.Format("[tid: {0:x4}] {1}", tid, message), "AsyncResult");
+        }
+
         public static AsyncResultNoResult CreateWithEmptyCallback(object state)
         {
             return new AsyncResultNoResult(_ => { }, state);
@@ -37,6 +46,9 @@ namespace Async.Tests
 
         public void SetAsCompleted(Exception exception, bool completedSynchronously)
         {
+            Log("SetAsCompleted - exception: {0}; completedSynchronously: {1}",
+                exception, completedSynchronously);
+
             // Passing null for exception means no error occurred.
             // This is the common case
             _exception = exception;
@@ -53,21 +65,26 @@ namespace Async.Tests
             // If the event exists, set it
             if (_resetEvent != null)
             {
+                Log("Set()");
                 _resetEvent.Set();
             }
             // If a callback method was set, call it
             if (_asyncCallback != null)
             {
+                Log("Callback()");
                 _asyncCallback(this);
             }
         }
 
         public void EndInvoke()
         {
+            Log("EndInvoke (enter)");
+
             // This method assumes that only 1 thread calls EndInvoke
             // for this object
             if (!IsCompleted)
             {
+                Log("Waiting on handle...");
                 // If the operation isn't done, wait for it
                 AsyncWaitHandle.WaitOne();
                 AsyncWaitHandle.Close();
@@ -77,8 +94,10 @@ namespace Async.Tests
             // Operation is done: if an exception occured, throw it
             if (_exception != null)
             {
+                Log("Exception encountered: {0}", _exception.Message);
                 throw _exception;
             }
+            Log("EndInvoke (exit)");
         }
 
         #region Implementation of IAsyncResult
@@ -123,6 +142,7 @@ namespace Async.Tests
                         }
                     }
                 }
+                Log("AsyncWaitHandle getter");
                 return _resetEvent.WaitHandle;
             }
         }
@@ -131,6 +151,7 @@ namespace Async.Tests
         {
             get
             {
+                Log("IsCompleted?");
                 return Thread.VolatileRead(ref _completedState) != StatePending;
             }
         }

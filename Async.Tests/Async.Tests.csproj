@@ -67,6 +67,7 @@
     <Compile Include="AsyncTest.cs" />
     <Compile Include="AsyncResult.cs" />
     <Compile Include="NullTaskScheduler.cs" />
+    <Compile Include="DynamicMethodBinder.cs" />
     <Compile Include="UnitTest1.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
