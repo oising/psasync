@@ -55,6 +55,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="AsyncCallInfo.cs" />
+    <Compile Include="DynamicMethodBinder.cs" />
     <Compile Include="Jobs\AsyncCallJob.cs" />
     <Compile Include="Jobs\ASyncCallJobInvocationInfo.cs" />
     <Compile Include="Jobs\AsyncCallJobSourceAdapter.cs" />

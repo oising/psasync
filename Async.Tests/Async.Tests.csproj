@@ -67,9 +67,10 @@
     <Compile Include="AsyncTest.cs" />
     <Compile Include="AsyncResult.cs" />
     <Compile Include="NullTaskScheduler.cs" />
-    <Compile Include="DynamicMethodBinder.cs" />
-    <Compile Include="UnitTest1.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="TestDynamicMethodBinder.cs">
+      <SubType>Code</SubType>
+    </Compile>
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\AsyncCallJobSource\Nivot.PowerShell.Async.csproj">
@@ -79,6 +80,9 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="notes.txt" />
   </ItemGroup>
   <Choose>
     <When Condition="'$(VisualStudioVersion)' == '10.0' And '$(IsCodedUITest)' == 'True'">

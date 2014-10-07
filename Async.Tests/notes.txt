@@ -1,4 +1,6 @@
-﻿//#define USE_COMPILER_CODEGEN
+﻿==
+
+//#define USE_COMPILER_CODEGEN
 
 using System;
 using System.Collections.Generic;
@@ -458,6 +460,8 @@ $timing.TotalSeconds
 
             var str = "Hello";
             var stateString = factory.FromAsync(begin, end, str); // state
+            
+            var stateStringLit = factory.FromAsync(begin, end, "World"); // state
 
             object nullRef = null;
             var stateNullRef = factory.FromAsync(begin, end, nullRef); // state
