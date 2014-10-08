@@ -56,6 +56,11 @@ namespace Nivot.PowerShell.Async
             if (target == null) throw new ArgumentNullException("target");
             if (methodName == null) throw new ArgumentNullException("methodName");
 
+            if (parameters == null)
+            {
+                parameters = new object[] {null};
+            }
+
             // This is the magic sauce that lets the DLR bind static method invocations
             // dynamically. The current C# 5 compiler (I don't know about Rosyln) does not
             // support this:
@@ -82,10 +87,12 @@ namespace Nivot.PowerShell.Async
             // literal being passed would be invalid for a ref/out; this would need a null ref.
             for (int i = 0; i < parameters.Length; i++)
             {
-                //object parameter = parameters[i];
+                object parameter = parameters[i];
+                CSharpArgumentInfoFlags flags = (parameter == null)
+                    ? CSharpArgumentInfoFlags.Constant
+                    : CSharpArgumentInfoFlags.UseCompileTimeType;
                 
-                binderArgs.Add(CSharpArgumentInfo.Create(
-                    CSharpArgumentInfoFlags.UseCompileTimeType, null));
+                binderArgs.Add(CSharpArgumentInfo.Create(flags, null));
             }
 
             var callSite = BuildCallSite(methodName, wantReturnValue, parameters, binderArgs);
@@ -121,7 +128,7 @@ namespace Nivot.PowerShell.Async
 
             if (parameters.Length > 0)
             {
-                typeArgs.AddRange(Type.GetTypeArray(parameters)); // FIXME: fails if parameters contains a null
+                typeArgs.AddRange(GetTypeArray(parameters)); // FIXME: fails if parameters contains a null
             }
 
             if (wantReturnValue)
@@ -137,6 +144,20 @@ namespace Nivot.PowerShell.Async
             dynamic callSite = create.Invoke(callSiteType, new object[] {binder});
             
             return callSite;
+        }
+
+        private static Type[] GetTypeArray(object[] array)
+        {
+            if (array.Any(element => element == null))
+            {
+                return (
+                    from element in array
+                    let type = (element == null) ?
+                        typeof (object) : element.GetType()
+                    select type
+                ).ToArray();
+            }
+            return Type.GetTypeArray(array);
         }
 
         private static Type GetFuncOrActionTypeByArity(bool hasReturnType, params Type[] typeArguments)

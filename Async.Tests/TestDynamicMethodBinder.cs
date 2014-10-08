@@ -73,8 +73,8 @@ namespace Async.Tests
         public void SimpleInstanceVoidInvoke()
         {
             var val = 0;
-            Action action = () => val = 42;
-            DynamicMethodBinder.InvokeNoResult(action, "Invoke", false);
+            Action<object> action = _ => val = 42;
+            DynamicMethodBinder.InvokeNoResult(action, "Invoke", false, null);
             Assert.IsTrue(val == 42);
         }
 
