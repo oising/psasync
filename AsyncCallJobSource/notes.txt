@@ -10,6 +10,9 @@ http://iinspectable.wordpress.com/2013/08/18/dualapi-finder-or-listing-winrt-typ
 APM, EAP, TAP interop
 http://msdn.microsoft.com/en-us/library/hh873178(v=vs.110).aspx
 
+Synchronization Contexts
+http://msdn.microsoft.com/en-us/magazine/gg598924.aspx
+
 
 inproc taskscheduler:
    - custom synchronizationcontext that queues tasks as one-off eventing subscriptions (maxtriggercount is 1) and also raises the event
@@ -43,3 +46,57 @@ Register-AsyncCallEvent -InputObject $s -MethodName BeginWrite -ArgumentList $da
 }
 
 update-typedata -
+
+
+IDEAS
+=====
+
+* Parse out call from a scriptblock AST
+
+$r = $f.BeginRead($buff, $start, $count, $callback, $state)
+$written = $f.EndRead($r)
+
+Register-AsyncCallEvent -input $f -expression { $f.beginread($buff, $start, $count, $callback, $state) } -action { ... }
+
+Register-AsyncCallEvent -input $f -methodname <string> -argumentlist <object[]> [-sourceidentifer <string> | -action <scriptblock>]
+
+Invoke-AsyncMethod
+
+VBBinder :)
+======
+
+Ok, so the c# runtime binder can't be forced to ignore case for method names. I know VB supports dynamic, so what are they doing? Well:
+
+    Microsoft.VisualBasic.CompilerServices.NewLateBinding.LateCall( ... )
+
+This does everything we want. Well, I guess better late than never. 
+-------
+
+APM (beginread/endread)
+1) pass target and methodname with arguments to cmdlet
+2) validate method returntype (iasyncresult) and parameters (<...>, asynccallback, object)
+3) validate endmethod (returntype: void or other - use this for decided on task<T>/task) and single parameter (iasyncresult)
+4) cmdlet will execute begin method to obtain iasyncresult, passing null callback/state
+5) call taskfactory with iasyncresult and action<iasyncresult>/func<iasyncresult,tresult> for end delegate
+6) resultant task is created, queued
+
+EAP (readasync, readcompleted[event], etc.)
+1) pass target and methodname, EAP means void yet [verb]Async naming
+2) scan for [verb]completed event (can be user-provided also)
+3) hook event(s), create asyncnoresult/asyncresult<tresult> that is signaled by [verb]completed (or user-specified event)
+4) create engine events for all hooked event(s)
+5) call taskfactory with our custom asyncnoresult/asyncresult<tresult> and lambda for action<iasyncresult>/func<iasyncresult,tresult>
+
+TAP
+1) pass target and methodname
+2) validate [verb]async returns task/task<t>
+3) invoke and queue task on our custom scheduler (runspace synchronizationcontext?)
+
+WINRT
+(todo)
+
+$eventingjob = await $f -calling beginwrite -with @(1,2,3), 0, 4
+
+$eventingjob = await $f -calling writeasync -with @(1,2,3), 0, 4
+
+$eventingjob = await $f -calling fooasync 

@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.Dynamic;
 using System.Linq;
+using System.Management.Automation;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using JetBrains.Annotations;
@@ -106,7 +108,7 @@ namespace Nivot.PowerShell.Async
             return fn();
         }
 
-        private static dynamic BuildCallSite(string methodName, bool wantReturnValue, object[] parameters, List<CSharpArgumentInfo> binderArgs)
+        private static dynamic BuildCallSite(string methodName, bool wantReturnValue, object[] parameters, IEnumerable<CSharpArgumentInfo> binderArgs)
         {
             // ResultDiscarded is an optimization that the compiler can make at compile time that we
             // cannot determine at runtime. That is to say, I have no idea if the caller will save the
@@ -128,7 +130,7 @@ namespace Nivot.PowerShell.Async
 
             if (parameters.Length > 0)
             {
-                typeArgs.AddRange(GetTypeArray(parameters)); // FIXME: fails if parameters contains a null
+                typeArgs.AddRange(GetTypeArray(parameters));
             }
 
             if (wantReturnValue)
@@ -177,10 +179,8 @@ namespace Nivot.PowerShell.Async
                 throw new ArgumentOutOfRangeException("typeArguments",
                     "Unable to determine a suitable delegate for the given generic type arguments.");
             }
-
+            
             return delegateType.MakeGenericType(typeArguments);
         }
-
-
     }
 }

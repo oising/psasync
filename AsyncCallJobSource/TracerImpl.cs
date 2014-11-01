@@ -24,7 +24,7 @@ namespace Nivot.PowerShell.Async
     /// <summary>
     /// Represents the shared tracer implementation for all subsystems in the HQMA application.
     /// </summary>
-    public class TracerImpl : ITracer
+    public sealed class TracerImpl : ITracer
     {
         private readonly string _tracerName;
 
